@@ -438,6 +438,19 @@ function viewGenerator(c) {
               `<div class="log-line"><span class="time">${esc(o.ts.slice(11, 19))}</span>${esc(o.line)}</div>`).join('')}</div>` : ''}
         </div></div>
 
+      <div class="card"><div class="card-head"><h2>Démarrer depuis un fichier Excel</h2>
+        <span class="badge">format du PDF</span></div>
+        <div class="card-body stack">
+          <div class="hint">En-tête : <span class="mono">nom | type | description | group | identifiant(optionnel)</span>. Types : <span class="mono">Boolean, Int16, Int32, Int64, Float, Double, String</span>. Le nom commence par une lettre ou <span class="mono">_</span> et ne contient que lettres, chiffres et <span class="mono">_</span>.</div>
+          <div class="row">
+            <label class="btn primary">Choisir un .xlsx et démarrer<input type="file" id="excelStartFile" accept=".xlsx,.xls" hidden></label>
+            <button class="btn" data-gact="excelRestart" ${st.excelFile ? '' : 'disabled'}>Démarrer depuis le dernier Excel</button>
+          </div>
+          ${st.excel
+              ? `<div class="hint">Dernier import : <span class="mono">${esc(st.excel.name)}</span> · ${st.excel.count} variables · ${esc(new Date(st.excel.importedAt).toLocaleString('fr-FR'))}</div>`
+              : '<div class="hint">Aucun fichier Excel importé pour le moment.</div>'}
+        </div></div>
+
       <div class="card"><div class="card-head"><h2>Paramètres du serveur OPC UA</h2>
         <button class="btn primary sm" data-gact="saveSettings">Enregistrer</button></div>
         <div class="card-body"><div class="form-grid four" id="genSettings">
@@ -448,8 +461,7 @@ function viewGenerator(c) {
         </div><div class="hint" style="margin-top:8px">Toute modification enregistrée redémarre app.exe s'il est en cours d'exécution.</div></div></div>
 
       <div class="card"><div class="card-head"><h2>Variables exposées (${(cfg.tags || []).length})</h2>
-        <div class="row"><label class="btn sm">Importer un Excel<input type="file" id="excelFile" accept=".xlsx,.xls" hidden></label>
-          <button class="btn primary sm" data-gact="addTag">+ Ajouter</button></div></div>
+        <div class="row"><button class="btn primary sm" data-gact="addTag">+ Ajouter</button></div></div>
         <div class="table-wrap"><table><thead><tr><th>Nom</th><th>Type</th><th>Groupe</th><th>Identifiant</th><th>NodeId OPC UA</th><th>Description</th><th></th></tr></thead>
           <tbody>${(cfg.tags || []).map((t, i) => `<tr data-row="${i}">
             <td><input data-field="nom" value="${esc(t.nom)}"></td>
@@ -460,7 +472,7 @@ function viewGenerator(c) {
             <td><input data-field="description" value="${esc(t.description)}"></td>
             <td class="row"><button class="btn sm" data-gact="saveTag" data-index="${i}">✓</button>
               <button class="btn sm danger" data-gact="delTag" data-index="${i}">✕</button></td></tr>`).join('') || '<tr><td colspan="7"><div class="empty">Aucune variable</div></td></tr>'}</tbody></table></div>
-        <div class="card-body hint">Colonnes Excel : <span class="mono">nom, type, description, group, identifiant(optionnel)</span>. L'import remplace la liste des variables.</div>
+        <div class="card-body hint">Ces variables peuvent aussi être remplacées en une fois depuis un fichier Excel (voir carte ci-dessus).</div>
       </div>
     </div>`;
 
@@ -473,6 +485,9 @@ function viewGenerator(c) {
             if (a === 'start' || a === 'stop') {
                 await post('generator/' + a);
                 toast(a === 'start' ? 'app.exe démarré' : 'app.exe arrêté');
+            } else if (a === 'excelRestart') {
+                const r = await post('generator/startFromSavedExcel');
+                toast(`${r.imported} variables reimportées — serveur OPC UA démarré`);
             } else if (a === 'saveSettings') {
                 const f = $('#genSettings');
                 const r = await put('generator/settings', {
@@ -501,18 +516,19 @@ function viewGenerator(c) {
         } catch (err) { fail(err); } finally { stop(); }
     });
 
-    $('#excelFile').onchange = async e => {
+    $('#excelStartFile').onchange = async e => {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
         reader.onload = async () => {
             try {
-                const r = await post('generator/importExcel', { data: reader.result });
-                toast(`${r.count} variables importées (${r.sheet})${r.restarted ? ' — app.exe redémarré' : ''}`);
+                const r = await post('generator/startFromExcel', { data: reader.result, name: file.name });
+                toast(`${r.imported} variables importées depuis ${file.name} — serveur OPC UA démarré`);
                 render();
             } catch (err) { fail(err); }
         };
         reader.readAsDataURL(file);
+        e.target.value = '';
     };
 }
 

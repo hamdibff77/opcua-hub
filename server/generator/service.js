@@ -14,7 +14,7 @@ const APP_API = process.env.OPCUA_GENERATOR_API || 'http://127.0.0.1:3301';
 const APP_UI = process.env.OPCUA_GENERATOR_UI || 'http://localhost:3300';
 const XLSX = require('xlsx');
 const utils = require('../core/opcua-utils');
-const { store } = require('../core/store');
+const { store, DATA_DIR: HUB_DATA_DIR } = require('../core/store');
 const logger = require('../core/logger');
 
 const APP_DIR = process.env.OPCUA_GENERATOR_DIR ||
@@ -24,6 +24,7 @@ const EXE_PATH = path.join(APP_DIR, EXE);
 const DATA_DIR = path.join(APP_DIR, 'data');
 const APP_CONFIG = path.join(DATA_DIR, 'config.json');
 const APP_SETTINGS = path.join(DATA_DIR, 'settings.json');
+const EXCEL_FILE = path.join(HUB_DATA_DIR, 'generator-tags.xlsx');
 
 const state = { child: null, pid: null, running: false, startedAt: null, lastExit: null, output: [] };
 
@@ -45,6 +46,21 @@ async function appPost(route, body) {
     if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status} sur ${route}`);
     return data;
 }
+/** Envoie le fichier Excel a l'API de app.exe (champ multipart "file"). */
+async function appImportExcel(buffer, fileName) {
+    const form = new FormData();
+    form.append('file', new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }), fileName || 'tags.xlsx');
+    const res = await fetch(APP_API + '/api/tags/import', {
+        method: 'POST', body: form, signal: AbortSignal.timeout(20000)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status} sur /api/tags/import`);
+    if (data.errors && data.errors.length) throw new Error(data.errors.join('; '));
+    return data;
+}
+
 async function appHealth() { return appGet('/api/health'); }
 
 async function waitForAppApi(timeoutMs = 25000) {
@@ -124,41 +140,45 @@ function pushOutput(text, kind) {
     else logger.info(`[generateur] ${line}`);
 }
 
-async function start() {
-    let health = await appHealth();
-    if (!health) {
-        if (!fs.existsSync(EXE_PATH)) throw new Error(`app.exe introuvable: ${EXE_PATH}`);
-        syncToApp();
-        try {
-            const child = spawn(EXE_PATH, [], {
-                cwd: APP_DIR, windowsHide: true, detached: false,
-                stdio: ['ignore', 'pipe', 'pipe']
-            });
-            state.child = child;
-            state.pid = child.pid;
-            state.running = true;
-            state.startedAt = Date.now();
-            state.output = [];
-            child.stdout.on('data', d => pushOutput(d.toString(), 'out'));
-            child.stderr.on('data', d => pushOutput(d.toString(), 'err'));
-            child.on('exit', (code, signal) => {
-                state.running = false;
-                state.child = null;
-                state.lastExit = { code, signal, at: Date.now() };
-                logger.warn(`[generateur] app.exe termine (code ${code})`);
-            });
-            child.on('error', err => {
-                state.running = false;
-                logger.error(`[generateur] lancement: ${err.message}`);
-            });
-            logger.ok(`[generateur] app.exe demarre (PID ${child.pid})`);
-            if (!await waitForAppApi()) logger.warn('[generateur] API de app.exe injoignable apres 25s');
-        } catch (err) {
+/** Demarre le processus app.exe si son API n'est pas deja joignable. */
+async function ensureAppRunning() {
+    if (await appHealth()) return true;
+    if (!fs.existsSync(EXE_PATH)) throw new Error(`app.exe introuvable: ${EXE_PATH}`);
+    syncToApp();
+    try {
+        const child = spawn(EXE_PATH, [], {
+            cwd: APP_DIR, windowsHide: true, detached: false,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        state.child = child;
+        state.pid = child.pid;
+        state.running = true;
+        state.startedAt = Date.now();
+        state.output = [];
+        child.stdout.on('data', d => pushOutput(d.toString(), 'out'));
+        child.stderr.on('data', d => pushOutput(d.toString(), 'err'));
+        child.on('exit', (code, signal) => {
+            state.running = false;
+            state.child = null;
+            state.lastExit = { code, signal, at: Date.now() };
+            logger.warn(`[generateur] app.exe termine (code ${code})`);
+        });
+        child.on('error', err => {
             state.running = false;
             logger.error(`[generateur] lancement: ${err.message}`);
-            throw err;
-        }
+        });
+        logger.ok(`[generateur] app.exe demarre (PID ${child.pid})`);
+        if (!await waitForAppApi()) logger.warn('[generateur] API de app.exe injoignable apres 25s');
+        return true;
+    } catch (err) {
+        state.running = false;
+        logger.error(`[generateur] lancement: ${err.message}`);
+        throw err;
     }
+}
+
+async function start() {
+    await ensureAppRunning();
     // Demarrage du serveur OPC UA via l'API de app.exe (le binaire ne le demarre pas seul).
     try {
         const r = await appPost('/api/server/start', {});
@@ -168,7 +188,7 @@ async function start() {
             logger.warn(`[generateur] server/start: ${err.message}`);
         }
     }
-    health = await appHealth();
+    const health = await appHealth();
     const port = health && health.opcua ? health.opcua.port : settings().port;
     const host = (health && health.opcua && health.opcua.ip) || settings().ip;
     const ready = await probePort(host, port);
@@ -206,6 +226,45 @@ async function stop() {
     });
 }
 
+/**
+ * Demarre le generateur a partir d'un fichier Excel (format du PDF) :
+ * arret du serveur OPC UA courant -> import via l'API de app.exe -> redemarrage.
+ */
+async function startFromExcel(dataUrl, fileName) {
+    const clean = String(dataUrl || '').replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(clean, 'base64');
+    if (!buffer.length) throw new Error('Fichier Excel vide');
+    await ensureAppRunning();
+
+    const health = await appHealth();
+    if (health && health.opcua && health.opcua.running) {
+        await appPost('/api/server/stop', {});
+        logger.info('[generateur] serveur OPC UA arrete avant import Excel');
+    }
+    const imported = await appImportExcel(buffer, fileName || 'tags.xlsx');
+    const tags = imported.tags || [];
+    if (!tags.length) throw new Error('Aucune variable importee du fichier Excel');
+
+    const cfg = config();
+    cfg.tags = tags;
+    cfg.excel = { name: fileName || 'tags.xlsx', importedAt: new Date().toISOString(), count: tags.length };
+    store.set('generator', cfg);
+    syncToApp();
+    fs.mkdirSync(HUB_DATA_DIR, { recursive: true });
+    fs.writeFileSync(EXCEL_FILE, buffer);
+
+    await appPost('/api/server/start', {});
+    logger.ok(`[generateur] ${tags.length} variables importees depuis ${fileName || 'tags.xlsx'}`);
+    return { ok: true, imported: tags.length, excel: cfg.excel, ...(await fullStatus()) };
+}
+
+/** Relance depuis le dernier fichier Excel importe. */
+async function startFromSavedExcel() {
+    if (!fs.existsSync(EXCEL_FILE)) throw new Error('Aucun fichier Excel importe auparavant');
+    const name = (config().excel && config().excel.name) || 'tags.xlsx';
+    return startFromExcel(fs.readFileSync(EXCEL_FILE).toString('base64'), name);
+}
+
 function status() {
     return {
         ok: true,
@@ -217,6 +276,8 @@ function status() {
         lastExit: state.lastExit,
         portOpen: false,
         count: (config().tags || []).length,
+        excel: config().excel || null,
+        excelFile: fs.existsSync(EXCEL_FILE),
         url: endpoint(),
         frontendUrl: APP_UI,
         appDir: APP_DIR,
@@ -305,11 +366,16 @@ function importExcel(base64) {
     const col = name => header.findIndex(h => h.replace(/\s|\(.*\)/g, '').includes(name));
     const iNom = col('nom'), iType = col('type'), iDesc = col('description'), iGroup = col('group');
     const iId = header.findIndex(h => h.startsWith('identifiant'));
+    // Types declares dans le PDF : Boolean, Int16, Int32, Int64, Float, Double, String.
     const normalizeType = raw => {
         const t = String(raw || '').toLowerCase().replace(/\s/g, '');
-        if (t.includes('bool')) return 'Boolean';
-        if (t.includes('int')) return 'Integer';
-        if (t.includes('double') || t.includes('float') || t.includes('numeric') || t.includes('real') || t.includes('decimal')) return 'Float';
+        if (t === 'boolean' || t === 'bool') return 'Boolean';
+        if (t === 'int16' || t === 'smallint') return 'Int16';
+        if (t === 'int32' || t === 'integer' || t === 'int') return 'Int32';
+        if (t === 'int64' || t === 'bigint') return 'Int64';
+        if (t === 'float' || t === 'real' || t === 'single') return 'Float';
+        if (['double', 'numeric', 'decimal', 'number'].includes(t)) return 'Double';
+        if (['string', 'text', 'char', 'varchar'].includes(t)) return 'String';
         return 'String';
     };
     const tags = [];
@@ -339,5 +405,6 @@ async function sync() {
 
 module.exports = {
     config, settings, endpoint, start, stop, status: fullStatus,
-    saveConfig, addTag, updateTag, removeTag, importExcel, syncToApp, sync, APP_DIR, EXE_PATH
+    saveConfig, addTag, updateTag, removeTag, importExcel, syncToApp, sync,
+    startFromExcel, startFromSavedExcel, APP_DIR, EXE_PATH, EXCEL_FILE
 };

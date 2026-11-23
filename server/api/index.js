@@ -108,6 +108,14 @@ function createApi(ctx) {
         const r = await generator.start();
         res.json({ ok: r.ok, ready: r.ready, running: r.running, endpoint: r.endpoint, count: r.count });
     }));
+    api.post('/generator/startFromExcel', wrap(async (req, res) => {
+        const r = await generator.startFromExcel(req.body.data, req.body.name);
+        res.json({ ok: r.ok, imported: r.imported, excel: r.excel, running: r.running, endpoint: r.endpoint, count: r.count });
+    }));
+    api.post('/generator/startFromSavedExcel', wrap(async (req, res) => {
+        const r = await generator.startFromSavedExcel();
+        res.json({ ok: r.ok, imported: r.imported, excel: r.excel, running: r.running, endpoint: r.endpoint, count: r.count });
+    }));
     api.post('/generator/stop', wrap(async (req, res) => res.json(await generator.stop())));
     api.post('/generator/sync', wrap(async (req, res) => res.json(await generator.sync())));
 

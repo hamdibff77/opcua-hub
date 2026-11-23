@@ -48,6 +48,23 @@ Les variables sont exposées avec des NodeId **`ns=2;s=<identifiant>`**.
 
 Format Excel (documentation PDF fournie) : ligne d'en-tête contenant `nom` et `type`, puis `description`, `group`, `identifiant` (optionnel). Types acceptés : `Boolean`, `Int16`, `Int32`, `Int64`, `Float`, `Double`, `String`. Le nom doit commencer par une lettre ou `_` et ne contenir que lettres, chiffres et `_`.
 
+### Démarrer depuis un fichier Excel
+
+L'onglet *Générateur app.exe* propose une carte **Démarrer depuis un fichier Excel** :
+
+1. cliquez sur **Choisir un .xlsx et démarrer** ;
+2. le fichier est envoyé directement à l'API de `app.exe` (`POST /api/tags/import`) — les types du PDF sont conservés tels quels (`Double`, `Int64`, etc.) ;
+3. le serveur OPC UA est arrêté puis redémarré avec les variables importées ;
+4. le fichier est mémorisé dans `data/generator-tags.xlsx` : le bouton **Démarrer depuis le dernier Excel** permet de rejouer l'import à tout moment.
+
+Exemple conforme au PDF :
+
+| nom | type | description | group | identifiant |
+|---|---|---|---|---|
+| nom_tag1 | Boolean | tag1 description | nom_group1 | 1000 |
+| nom_tag2 | Double | tag2 description | nom_group1 | 1001 |
+| nom_tag3 | Int64 | tag3 description | nom_group2 | 1002 |
+
 ---
 
 ## Connecteur base de données (FUXA généralisé)
@@ -76,6 +93,8 @@ Champs : hôte/adresse (ou fichier SQLite), port, base par défaut, **colonne de
 | POST | `/api/connectors/endpoints` | Découverte des endpoints OPC UA |
 | GET | `/api/generator` | Configuration + statut réel |
 | POST | `/api/generator/start\|stop\|sync` | Pilotage et synchronisation |
+| POST | `/api/generator/startFromExcel` | Importe un `.xlsx` (base64) et démarre avec ses variables |
+| POST | `/api/generator/startFromSavedExcel` | Rejoue le dernier fichier Excel importé |
 | PUT | `/api/generator/settings` | Paramètres du serveur OPC UA |
 | POST/DELETE | `/api/generator/tags`, `/api/generator/tags/:index` | Variables de app.exe |
 | POST | `/api/generator/importExcel` | Import Excel |
