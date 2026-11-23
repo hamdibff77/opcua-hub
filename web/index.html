@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OPCUA Hub — Connecteurs, Générateur externe, Historique</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-mark">O</div>
+            <div class="brand-text"><strong>OPCUA Hub</strong><small>Édition FUXA autonome</small></div>
+        </div>
+        <nav class="nav" id="nav">
+            <button class="nav-item active" data-view="dashboard"><span class="nav-icon">◉</span>Tableau de bord</button>
+            <button class="nav-item" data-view="connectors"><span class="nav-icon">⇄</span>Connecteurs</button>
+            <button class="nav-item" data-view="generator"><span class="nav-icon">⚙</span>Générateur app.exe</button>
+        </nav>
+        <div class="sidebar-foot">
+            <div class="foot-line"><span class="dot ok" id="apiDot"></span><span id="apiState">Serveur connecté</span></div>
+            <div class="foot-line muted" id="footInfo">—</div>
+        </div>
+    </aside>
+
+    <div class="workspace">
+        <header class="topbar">
+            <div>
+                <h1 id="viewTitle">Tableau de bord</h1>
+                <p id="viewSubtitle">Vue d'ensemble de l'application</p>
+            </div>
+            <div class="topbar-right">
+                <span class="badge" id="badgeOpcua">node-opcua</span>
+                <span class="badge ok" id="badgeTransfer">Transfert arrêté</span>
+                <span class="clock" id="clock"></span>
+            </div>
+        </header>
+        <main id="content" class="content"></main>
+    </div>
+</div>
+
+<div id="modal" class="modal hidden"></div>
+<div id="toast" class="toast hidden"></div>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "opcua-hub",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Application autonome issue de FUXA: connecteurs OPC UA et SQL multi-SGBD, pilotage du generateur OPC UA externe app.exe",
+  "main": "server/main.js",
+  "scripts": {
+    "start": "node server/main.js",
+    "dev": "node --watch server/main.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "express": "^4.21.2",
+    "mssql": "^12.8.1",
+    "mysql2": "^3.24.6",
+    "node-opcua": "2.149.0",
+    "pg": "^8.13.1",
+    "xlsx": "^0.18.5"
+  }
+}
